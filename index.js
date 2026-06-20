@@ -614,7 +614,80 @@ app.get("/freelancer/active-projects/:email", async (req, res) => {
 
     const taskIds = proposals.map(p => new ObjectId(p.taskId));
 
-    
+
+
+//admin stats 
+app.get("/admin/stats", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const totalUsers = await usersCollection.countDocuments();
+    const totalTasks = await tasksCollection.countDocuments();
+
+    const payments = await paymentsCollection.find().toArray();
+
+    const totalRevenue = payments.reduce(
+      (sum, p) => sum + Number(p.amount || 0),
+      0
+    );
+
+    const activeTasks = await tasksCollection.countDocuments({
+      status: { $in: ["open", "in progress", "awaiting_payment"] },
+    });
+
+    res.json({
+      totalUsers,
+      totalTasks,
+      totalRevenue,
+      activeTasks,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+//get users for admin
+app.get("/admin/users", requireAuth, requireAdmin, async (req, res) => {
+  const users = await usersCollection.find().toArray();
+  res.json(users);
+});
+//block users
+app.patch("/admin/users/block/:id", requireAuth, requireAdmin, async (req, res) => {
+  await usersCollection.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { blocked: true } }
+  );
+
+  res.json({ success: true });
+});
+//unblock users
+app.patch("/admin/users/unblock/:id", requireAuth, requireAdmin, async (req, res) => {
+  await usersCollection.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { blocked: false } }
+  );
+
+  res.json({ success: true });
+});
+//get all tasks for admin
+app.get("/admin/tasks", requireAuth, requireAdmin, async (req, res) => {
+  const tasks = await tasksCollection.find().toArray();
+  res.json(tasks);
+});
+//delete tasks by admin
+app.delete("/admin/tasks/:id", requireAuth, requireAdmin, async (req, res) => {
+  await tasksCollection.deleteOne({
+    _id: new ObjectId(req.params.id),
+  });
+
+  res.json({ success: true });
+});
+//admin payment 
+app.get("/admin/payments", requireAuth, requireAdmin, async (req, res) => {
+  const payments = await paymentsCollection
+    .find()
+    .sort({ paidAt: -1 })
+    .toArray();
+
+  res.json(payments);
+});
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
