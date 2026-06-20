@@ -198,6 +198,65 @@ if (task.status !== "open") {
     });
   }
 });
+//browsing tasks
+app.get("/browse-tasks", async (req, res) => {
+  const tasks = await tasksCollection
+    .find({ status: "open" })
+    .toArray();
+
+  res.json(tasks);
+});
+//posting proposals 
+app.post("/proposals", async (req, res) => {
+  try {
+   const {
+  taskId,
+  freelancerId,
+  freelancerName,
+  freelancerEmail,
+  budget,
+  deliveryDate,
+  message,
+} = req.body;
+    // 1. prevent duplicate proposal
+    const existing = await proposalsCollection.findOne({
+      taskId,
+      freelancerId,
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        error: "You already submitted a proposal",
+      });
+    }
+if (!freelancerId || !freelancerEmail) {
+  return res.status(403).json({
+    error: "Only freelancers can apply",
+  });
+}
+   const proposal = {
+  taskId,
+  freelancerId,
+  freelancerEmail,
+   freelancerName,
+  budget: Number(budget),
+
+  deliveryDate: new Date(deliveryDate),
+
+  message,
+  status: "pending",
+  createdAt: new Date(),
+};
+    const result = await proposalsCollection.insertOne(proposal);
+
+    res.json({
+      success: true,
+      insertedId: result.insertedId,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
