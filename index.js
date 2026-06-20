@@ -257,8 +257,175 @@ if (!freelancerId || !freelancerEmail) {
     res.status(500).json({ error: err.message });
   }
 });
+//client-stats
+app.get("/client/stats/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
 
-    // Send a ping to confirm a successful connection
+    const tasks = await tasksCollection
+      .find({ clientEmail: email })
+      .toArray();
+
+    const totalTasks = tasks.length;
+
+    const openTasks = tasks.filter(
+      (task) => task.status === "open"
+    ).length;
+
+    const inProgressTasks = tasks.filter(
+      (task) => task.status === "in progress"
+    ).length;
+
+    const completedTasks = tasks.filter(
+      (task) => task.status === "completed"
+    ).length;
+
+    const payments = await paymentsCollection
+      .find({ clientEmail: email })
+      .toArray();
+
+    const totalSpent = payments.reduce(
+      (sum, payment) => sum + Number(payment.amount || 0),
+      0
+    );
+
+    res.json({
+      totalTasks,
+      openTasks,
+      inProgressTasks,
+      completedTasks,
+      totalSpent,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+});
+//get proposals
+app.get("/proposals/:taskId", async (req, res) => {
+  try {
+    const proposals = await proposalsCollection
+      .find({ taskId: req.params.taskId })
+      .toArray();
+
+    res.json(proposals);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+//accepting and rejecting proposals
+app.patch("/proposals/accept/:id", async (req, res) => {
+  try {
+    const proposalId = req.params.id;
+
+    const proposal = await proposalsCollection.findOne({
+      _id: new ObjectId(proposalId),
+    });
+
+    if (!proposal) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    // ❌ BLOCK IF TASK ALREADY STARTED OR PAID
+    const task = await tasksCollection.findOne({
+      _id: new ObjectId(proposal.taskId),
+    });
+
+
+    if (!task) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+
+   if (task.status !== "open") {
+  return res.status(400).json({
+    error: "This task is already accepted or in payment flow",
+  });
+}
+
+    // 1. mark accepted proposal
+    await proposalsCollection.updateOne(
+      { _id: new ObjectId(proposalId) },
+      { $set: { status: "accepted" } }
+    );
+
+    // 2. reject all others
+    await proposalsCollection.updateMany(
+      {
+        taskId: proposal.taskId,
+        _id: { $ne: new ObjectId(proposalId) },
+      },
+      { $set: { status: "rejected" } }
+    );
+
+    // 3. update task (LOCK IT)
+    await tasksCollection.updateOne(
+      { _id: new ObjectId(proposal.taskId) },
+      {
+        $set: {
+          status: "awaiting_payment", 
+          acceptedProposalId: proposalId,
+        },
+      }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+//payment lock 
+app.patch("/tasks/mark-paid/:taskId", async (req, res) => {
+  try {
+    await tasksCollection.updateOne(
+  { _id: new ObjectId(req.params.taskId) },
+  {
+    $set: {
+      status: "in progress",
+      paid: true,
+      locked: true, 
+    },
+  }
+);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+//rejecting proposals
+app.patch("/proposals/reject/:id", async (req, res) => {
+  await proposalsCollection.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { status: "rejected" } }
+  );
+
+  res.json({ success: true });
+});
+
+//getting tasks details
+app.get("/tasks/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const task = await tasksCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+
+    res.json(task);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
