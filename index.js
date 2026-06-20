@@ -425,7 +425,197 @@ app.get("/tasks/:id", async (req, res) => {
   }
 });
 
-a ping to confirm a successful connection
+//for payment/checkout
+app.post("/create-checkout-session", async (req, res) => {
+  try {
+    const { proposalId, amount, clientEmail } = req.body;
+
+   const session = await stripe.checkout.sessions.create({
+  payment_method_types: ["card"],
+  mode: "payment",
+
+  customer_email: clientEmail,
+
+  line_items: [
+    {
+      price_data: {
+        currency: "usd",
+        product_data: {
+          name: "Freelancer Task Payment",
+        },
+        unit_amount: Number(amount) * 100,
+      },
+      quantity: 1,
+    },
+  ],
+
+  metadata: {
+    proposalId,
+  },
+
+  success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+  cancel_url: `${process.env.CLIENT_URL}/payment/cancel`,
+});
+
+    res.json({ url: session.url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+//confirm session
+app.post("/confirm-session", async (req, res) => {
+  try {
+    const { session_id } = req.body;
+
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+
+    if (!session || session.payment_status !== "paid") {
+      return res.status(400).json({ error: "Payment not confirmed" });
+    }
+
+    const proposalId = session.metadata.proposalId;
+
+    const proposal = await proposalsCollection.findOne({
+      _id: new ObjectId(proposalId),
+    });
+
+    const task = await tasksCollection.findOne({
+      _id: new ObjectId(proposal.taskId),
+    });
+
+    // mark accepted
+    await proposalsCollection.updateOne(
+      { _id: new ObjectId(proposalId) },
+      { $set: { status: "accepted" } }
+    );
+
+    // update task
+    await tasksCollection.updateOne(
+      { _id: new ObjectId(proposal.taskId) },
+      {
+        $set: {
+          status: "in progress",
+          acceptedProposalId: proposalId,
+        },
+      }
+    );
+
+    // save payment
+   await paymentsCollection.insertOne({
+  proposalId,
+  taskTitle: task.title,
+
+  freelancerName: proposal.freelancerName,
+  freelancerEmail: proposal.freelancerEmail, // ✅ ADD THIS
+
+  clientEmail: task.clientEmail, // optional but useful
+
+  amount: proposal.budget,
+  paidAt: new Date(),
+});
+
+    res.json({
+      success: true,
+      taskTitle: task.title,
+      freelancerName: proposal.freelancerName,
+      amount: proposal.budget,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+//get payment for admin
+app.get("/payments", async (req, res) => {
+  try {
+    const payments = await paymentsCollection
+      .find()
+      .sort({ paidAt: -1 })
+      .toArray();
+
+    res.json(payments);
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+});
+//earning page for freelancer
+app.get("/payments/freelancer/:email", async (req, res) => {
+  try {
+    const payments = await paymentsCollection
+      .find({
+        freelancerEmail: req.params.email,
+      })
+      .toArray();
+
+    res.json(payments);
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+});
+
+//for freelancer stat
+app.get("/freelancer/stats/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
+
+    const proposals = await proposalsCollection
+      .find({ freelancerEmail: email })
+      .toArray();
+
+    const total = proposals.length;
+    const pending = proposals.filter(p => p.status === "pending").length;
+    const accepted = proposals.filter(p => p.status === "accepted").length;
+
+    const earnings = await paymentsCollection
+      .find({ freelancerEmail: email })
+      .toArray();
+
+    const totalEarnings = earnings.reduce(
+      (sum, p) => sum + Number(p.amount || 0),
+      0
+    );
+
+    res.json({
+      totalProposals: total,
+      pendingProposals: pending,
+      acceptedProposals: accepted,
+      totalEarnings,
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+//get freelancer proposal
+app.get("/proposals/freelancer/:email", async (req, res) => {
+  const proposals = await proposalsCollection
+    .find({ freelancerEmail: req.params.email })
+    .toArray();
+
+  res.json(proposals);
+});
+
+//show active projects 
+app.get("/freelancer/active-projects/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
+
+    // 1. find accepted proposals of this freelancer
+    const proposals = await proposalsCollection
+      .find({
+        freelancerEmail: email,
+        status: "accepted",
+      })
+      .toArray();
+
+    const taskIds = proposals.map(p => new ObjectId(p.taskId));
+
+    
+    // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
