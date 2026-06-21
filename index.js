@@ -614,7 +614,167 @@ app.get("/freelancer/active-projects/:email", async (req, res) => {
 
     const taskIds = proposals.map(p => new ObjectId(p.taskId));
 
+    // 2. get tasks that are in progress
+    const tasks = await tasksCollection
+      .find({
+        _id: { $in: taskIds },
+        status: "in progress",
+      })
+      .toArray();
 
+    res.json(tasks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+//delivery save 
+app.patch("/tasks/submit-deliverable/:id", async (req, res) => {
+  try {
+    const { deliverableUrl } = req.body;
+
+    const task = await tasksCollection.findOne({
+      _id: new ObjectId(req.params.id),
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+
+    if (task.status !== "in progress") {
+      return res.status(400).json({ error: "Task not active" });
+    }
+
+    await tasksCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      {
+        $set: {
+          status: "completed",
+          deliverable_url: deliverableUrl,
+          completedAt: new Date(),
+        },
+      }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+//for profile
+app.patch("/freelancer/profile/:email", async (req, res) => {
+  const { name, image, skills, bio, rate } = req.body;
+
+  await usersCollection.updateOne(
+    { email: req.params.email },
+    {
+      $set: { name, image, skills, bio, rate },
+    }
+  );
+
+  res.json({ success: true });
+});
+//updating profile
+app.patch("/users/profile/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
+
+    const update = {
+      name: req.body.name,
+      image: req.body.photo,
+      skills: req.body.skills,
+      bio: req.body.bio,
+      hourlyRate: req.body.hourlyRate,
+    };
+
+    await usersCollection.updateOne(
+      { email },
+      {
+        $set: update,
+        $setOnInsert: {
+          email,
+          role: "client",      // default role (important)
+          blocked: false,      // ✅ ALWAYS ADDED
+          createdAt: new Date()
+        }
+      },
+      { upsert: true } // ✅ THIS IS THE MISSING PIECE
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+//getting profile
+app.get("/users/profile/:email", async (req, res) => {
+  const user = await usersCollection.findOne({
+    email: req.params.email,
+  });
+
+  res.json(user || {});
+});
+
+//getting all freelancers
+app.get("/freelancers", async (req, res) => {
+  try {
+    const freelancers = await usersCollection
+      .find({ role: "freelancer" })
+      .toArray();
+
+    res.json(freelancers);
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+});
+//get single freelancer
+app.get("/freelancers/:id", async (req, res) => {
+  try {
+    const freelancer = await usersCollection.findOne({
+      _id: new ObjectId(req.params.id),
+      role: "freelancer",
+    });
+
+    if (!freelancer) {
+      return res.status(404).json({
+        error: "Freelancer not found",
+      });
+    }
+
+    res.json(freelancer);
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+});
+
+//ensuring users get block feild 
+app.post("/users/ensure", async (req, res) => {
+  try {
+    const { email, name, image, role } = req.body;
+
+    await usersCollection.updateOne(
+      { email },
+      {
+        $setOnInsert: {
+          email,
+          name,
+          image,
+          role: role || "client",
+          blocked: false,
+          createdAt: new Date()
+        }
+      },
+      { upsert: true }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 //admin stats 
 app.get("/admin/stats", requireAuth, requireAdmin, async (req, res) => {
@@ -679,6 +839,7 @@ app.delete("/admin/tasks/:id", requireAuth, requireAdmin, async (req, res) => {
 
   res.json({ success: true });
 });
+
 //admin payment 
 app.get("/admin/payments", requireAuth, requireAdmin, async (req, res) => {
   const payments = await paymentsCollection
