@@ -410,17 +410,25 @@ async function run() {
       }
     });
     //get proposals
-    app.get("/proposals/:taskId", async (req, res) => {
-      try {
-        const proposals = await proposalsCollection
-          .find({ taskId: req.params.taskId })
-          .toArray();
+    app.get("/proposals/:taskId", requireAuth, async (req, res) => {
+  try {
+    const taskId = req.params.taskId;
 
-        res.json(proposals);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
+    // 1. find task
+    const task = await tasksCollection.findOne({
+      _id: new ObjectId(taskId),
     });
+
+    if (!task) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+
+    // 2. only task owner can see proposals
+    if (task.clientEmail !== req.user.email) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+  }
+  })
 
     //accepting and rejecting proposals
     app.patch("/proposals/accept/:id", async (req, res) => {
