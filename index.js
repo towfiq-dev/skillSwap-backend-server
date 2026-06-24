@@ -4,7 +4,8 @@ const Stripe = require("stripe");
 const app = express()
 require('dotenv').config()
 const port = 5000
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+//const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY.trim());
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const { createRemoteJWKSet, jwtVerify } = require('jose-cjs');
