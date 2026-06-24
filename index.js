@@ -1221,5 +1221,5 @@ app.get("/users/status/:email", async (req, res) => {
 run().catch(console.dir);
 
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
+  console.log(`Server running on port ${port}`)
 })
